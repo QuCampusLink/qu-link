@@ -1,18 +1,8 @@
-/// BusService (mock data and simulation)
+/// BusService — campus routes and stops
 ///
-/// Provides an in-memory simulation of buses, routes, and stops for the
-/// QU campus. `BusService` exposes methods to initialize mock data,
-/// retrieve route/stop information, and stream periodic bus position
-/// updates to consuming widgets. It's implemented as a singleton so the
-/// same simulated state is shared app-wide.
-///
-/// Responsibilities:
-/// - Create and expose mock `Bus`, `BusRoute`, and `BusStop` data
-/// - Simulate bus movement and broadcast updates via `busStream`
-/// - Provide convenience lookups (routes for destination, stops by id)
-///
-/// Note: This is a demo-only service. Replace it with a real backend
-/// implementation (e.g. Firebase) for production usage.
+/// Loads static QU campus route and stop reference data used for map
+/// markers, destination picking, and route matching. Live bus positions
+/// come from `ConvexBusService`.
 
 
 
@@ -27,21 +17,20 @@ class BusService extends ChangeNotifier{
   BusService._internal();
 
   final List<BusRoute> _routes = [];
-  final List<Bus> _buses = []; // kept empty by default; live buses come from backend
   final List<BusStop> _stops = [];
 
   bool _initialized = false;
 
-  /// Initialize route and stop data
-  Future<void> initializeMockData() async {
+  /// Load campus route and stop reference data.
+  Future<void> initializeCampusData() async {
     if (_initialized) return;
     _initialized = true;
 
-    await _createMockStops();
-    await _createMockRoutes();
+    await _loadCampusStops();
+    await _loadCampusRoutes();
   }
 
-  Future<void> _createMockStops() async {
+  Future<void> _loadCampusStops() async {
     _stops.addAll([
 // Metro Station (Main Hub) - All genders
       BusStop(
@@ -311,7 +300,7 @@ class BusService extends ChangeNotifier{
     ]);
   }
 
-  Future<void> _createMockRoutes() async {
+  Future<void> _loadCampusRoutes() async {
     _routes.addAll([
       // OFFICIAL QU BUS ROUTES - 7 Horizontal Routes
       
@@ -521,10 +510,6 @@ BusRoute(
     ]);
   }
 
-  // No mock buses or simulation code. Live bus positions are expected to
-  // be provided by `FirebaseBusService`. The `_buses` list remains empty
-  // unless intentionally populated for testing.
-
   /// Get all bus routes
   List<BusRoute> getAllRoutes() {
     return List.from(_routes);
@@ -533,11 +518,6 @@ BusRoute(
   /// Get all bus stops
   List<BusStop> getAllStops() {
     return List.from(_stops);
-  }
-
-  /// Get all active buses
-  List<Bus> getAllBuses() {
-    return List.from(_buses);
   }
 
   /// Get routes that serve a specific destination

@@ -1,28 +1,16 @@
 /// App entrypoint
 ///
-/// Initializes Flutter and (optionally) Firebase, configures top-level
-/// providers, and sets up the `MaterialApp` with routes and theme.
-/// Keep this file small — heavy logic should live in services or widgets.
+/// Initializes Flutter, configures top-level providers, and sets up the
+/// `MaterialApp` with routes and theme.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'gender_selection_screen.dart';
 import 'bus_service.dart';
-import 'firebase_bus_service.dart';
+import 'convex_bus_service.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Firebase
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint('Firebase initialization error: $e');
-    // Continue anyway - app will work with mock data
-  }
-  
   runApp(const QUBusTrackerApp());
 }
 
@@ -34,7 +22,7 @@ class QUBusTrackerApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => BusService()),
-        ChangeNotifierProvider(create: (_) => FirebaseBusService()),
+        ChangeNotifierProvider(create: (_) => ConvexBusService()),
       ],
       child: MaterialApp(
         title: 'QU Bus Tracker',

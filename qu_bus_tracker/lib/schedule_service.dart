@@ -1,18 +1,27 @@
 import 'package:flutter/foundation.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+
+import 'convex_http_client.dart';
 
 class ScheduleService {
   static final ScheduleService _instance = ScheduleService._internal();
   factory ScheduleService() => _instance;
   ScheduleService._internal();
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final ConvexHttpClient _client = ConvexHttpClient.instance;
 
   Future<Map<String, dynamic>?> getStopSchedule(String stopId) async {
     try {
-      final doc = await _firestore.collection('stops').doc(stopId.toUpperCase()).get();
-      if (doc.exists && doc.data() != null) {
-        return doc.data();
+      final result = await _client.query(
+        'stops:getSchedule',
+        {'stopId': stopId.toUpperCase()},
+      );
+
+      if (result == null) {
+        return null;
+      }
+
+      if (result is Map) {
+        return Map<String, dynamic>.from(result);
       }
       return null;
     } catch (e) {
@@ -23,7 +32,7 @@ class ScheduleService {
 
   Map<String, List<int>> getNextBuses(Map<String, dynamic> routesData) {
     final result = <String, List<int>>{};
-    
+
     if (routesData['routes'] is Map<String, dynamic>) {
       final routes = routesData['routes'] as Map<String, dynamic>;
       final now = DateTime.now();

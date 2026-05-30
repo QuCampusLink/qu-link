@@ -3,7 +3,7 @@
 /// This file defines the `BusDetailsScreen` widget. It shows detailed
 /// information for a single destination: a focused map with live bus
 /// positions, available routes, arrival/ETA estimates, and recent stops.
-/// The screen subscribes to `BusService` (mock) and `FirebaseBusService`
+/// The screen subscribes to `BusService` and `ConvexBusService`
 /// (real-time) and reconciles data to present a stable, user-friendly view.
 ///
 /// Responsibilities:
@@ -18,7 +18,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import 'bus_models.dart';
 import 'bus_service.dart';
-import 'firebase_bus_service.dart';
+import 'convex_bus_service.dart';
 import 'schedule_service.dart';
 
 const Map<String, LatLng> stopCoordinates = {
@@ -162,17 +162,17 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
 
   Future<void> _loadBusData() async {
     final busService = Provider.of<BusService>(context, listen: false);
-    final firebaseBusService = Provider.of<FirebaseBusService>(context, listen: false);
+    final convexBusService = Provider.of<ConvexBusService>(context, listen: false);
     // Initialize route/stop data (kept for UI lookups)
-    await busService.initializeMockData();
+    await busService.initializeCampusData();
 
     if (!mounted) return;
 
     // Load routes serving the destination
     final routes = busService.getRoutesToDestination(widget.destination);
 
-    // Load live buses from Firebase and filter to relevant routes
-    final realBuses = firebaseBusService.getAllActiveBuses();
+    // Load live buses from Convex and filter to relevant routes
+    final realBuses = convexBusService.getAllActiveBuses();
     final combinedBuses = <String, Bus>{};
 
     for (final bus in realBuses) {
@@ -189,8 +189,8 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
       _isLoading = false;
     });
 
-    // Listen to Firebase bus updates (FirebaseBusService is a ChangeNotifier)
-    firebaseBusService.addListener(_updateBusesFromFirebase);
+    // Listen to Convex bus updates (ConvexBusService is a ChangeNotifier)
+    convexBusService.addListener(_updateBusesFromConvex);
 
     // Load schedule data for the destination
     if (widget.destination != null) {
@@ -315,8 +315,8 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
     if (!mounted) return;
     
     try {
-      final firebaseBusService = Provider.of<FirebaseBusService>(context, listen: false);
-      final realBuses = firebaseBusService.getAllActiveBuses();
+      final convexBusService = Provider.of<ConvexBusService>(context, listen: false);
+      final realBuses = convexBusService.getAllActiveBuses();
 
       final combinedBuses = <String, Bus>{};
       for (final bus in realBuses) {
@@ -334,7 +334,7 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
     }
   }
 
-  void _updateBusesFromFirebase() {
+  void _updateBusesFromConvex() {
     // Simple wrapper that calls the main update path
     _updateBuses();
   }
@@ -343,8 +343,8 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
   void dispose() {
     try {
       if (mounted) {
-        final firebaseBusService = Provider.of<FirebaseBusService>(context, listen: false);
-        firebaseBusService.removeListener(_updateBusesFromFirebase);
+        final convexBusService = Provider.of<ConvexBusService>(context, listen: false);
+        convexBusService.removeListener(_updateBusesFromConvex);
       }
     } catch (e) {
       // Provider might not be available during dispose
@@ -933,11 +933,7 @@ final target =
                                                                   0xFF1F2933),
                                                             ),
                                                           ),
-                                                          if (!bus.id
-                                                                  .startsWith(
-                                                                      'mock_') &&
-                                                              bus.driverName
-                                                                  .isNotEmpty)
+                                                          if (bus.driverName.isNotEmpty)
                                                             Padding(
                                                               padding:
                                                                   const EdgeInsets

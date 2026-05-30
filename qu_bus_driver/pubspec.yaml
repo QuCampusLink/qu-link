@@ -16,13 +16,9 @@ dependencies:
   geolocator: ^14.0.2
   geocoding: ^4.0.0
   
-  # HTTP requests
+  # HTTP + Convex
   http: ^1.1.0
-  
-  # Firebase
-  firebase_core: ^4.2.0
-  firebase_database: ^12.0.3
-  
+
   # State management
   provider: ^6.1.5+1
   

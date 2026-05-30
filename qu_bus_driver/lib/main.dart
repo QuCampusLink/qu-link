@@ -1,22 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'driver_home_screen.dart';
 import 'location_service.dart';
-import 'firebase_service.dart';
+import 'convex_service.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Firebase with error handling
-  try {
-    await Firebase.initializeApp();
-    debugPrint('Firebase initialized successfully');
-  } catch (e) {
-    debugPrint('Firebase initialization failed: $e');
-    // Continue anyway - FirebaseService will handle initialization later
-  }
-  
   runApp(const QUBusDriverApp());
 }
 
@@ -28,7 +17,7 @@ class QUBusDriverApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => LocationService()),
-        ChangeNotifierProvider(create: (_) => FirebaseService()),
+        ChangeNotifierProvider(create: (_) => ConvexService()),
       ],
       child: MaterialApp(
         title: 'QU Bus Driver',

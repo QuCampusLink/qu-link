@@ -1,0 +1,51 @@
+# Builds an unsigned iOS app for sideloading with Sideloadly/AltStore (free Apple ID).
+# No paid Apple Developer account required.
+#
+# After the workflow finishes:
+# 1. Download the "qu-bus-tracker-ios" artifact (.ipa)
+# 2. Install Sideloadly on Windows: https://sideloadly.io
+# 3. Connect iPhone via USB, drag IPA into Sideloadly, sign in with free Apple ID
+# 4. Re-install every ~7 days (free Apple ID limit)
+
+name: iOS Tracker (unsigned, free sideload)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: qu_bus_tracker
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS (no code signing)
+        run: |
+          flutter build ios --release --no-codesign \
+            --dart-define=CONVEX_URL=https://perfect-curlew-934.convex.cloud
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -qr qu-bus-tracker.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qu-bus-tracker-ios
+          path: qu_bus_tracker/qu-bus-tracker.ipa
+          retention-days: 30

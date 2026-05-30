@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'home_screen.dart';
 import 'bus_service.dart';
-import 'firebase_bus_service.dart';
+import 'convex_bus_service.dart';
 
 class GenderSelectionScreen extends StatefulWidget {
   const GenderSelectionScreen({super.key});
@@ -129,10 +129,10 @@ class _GenderSelectionScreenState extends State<GenderSelectionScreen> {
 
   Future<void> _preloadData() async {
     final busService = Provider.of<BusService>(context, listen: false);
-    await busService.initializeMockData();
+    await busService.initializeCampusData();
     
-    final firebaseBusService = Provider.of<FirebaseBusService>(context, listen: false);
-    await firebaseBusService.initialize();
+    final convexBusService = Provider.of<ConvexBusService>(context, listen: false);
+    await convexBusService.initialize();
   }
 
   void _navigateToHome(String gender) {

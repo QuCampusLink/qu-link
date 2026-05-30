@@ -8,7 +8,7 @@ enum BusStatus {
   unknown,
 }
 
-/// Represents bus location data sent to Firebase
+/// Represents bus location data sent to Convex
 class BusLocationData {
   final String busId;
   final String driverName;

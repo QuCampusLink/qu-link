@@ -1,0 +1,43 @@
+# Codemagic CI — builds QU Bus Tracker for iPhone.
+# Docs: https://docs.codemagic.io/flutter-configuration/flutter-projects/
+#
+# Setup checklist:
+# 1. Push this repo to GitHub and connect it in Codemagic
+# 2. Apple Developer Program ($99/yr) — required for device installs / TestFlight
+# 3. Register bundle ID com.nihal.qulink in Apple Developer → Identifiers
+# 4. Codemagic → Team settings → codemagic.yaml settings → enable automatic iOS code signing
+# 5. Add your iPhone UDID under Devices in Apple Developer (for development/ad hoc builds)
+# 6. Google Cloud: enable Maps SDK for iOS, restrict API key to com.nihal.qulink
+# 7. Optional env var in Codemagic: GOOGLE_MAPS_API_KEY (overrides Info.plist at build time)
+
+workflows:
+  qu-bus-tracker-ios:
+    name: QU Bus Tracker iOS
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    working_directory: qu_bus_tracker
+    environment:
+      ios_signing:
+        distribution_type: development
+        bundle_identifier: com.nihal.qulink
+      vars:
+        CONVEX_URL: https://perfect-curlew-934.convex.cloud
+      flutter: stable
+      xcode: latest
+    scripts:
+      - name: Set up code signing settings on Xcode project
+        script: xcode-project use-profiles
+      - name: Get Flutter dependencies
+        script: flutter pub get
+      - name: Apply Google Maps API key from Codemagic env (optional)
+        script: |
+          if [ -n "$GOOGLE_MAPS_API_KEY" ]; then
+            /usr/libexec/PlistBuddy -c "Set :GMSApiKey $GOOGLE_MAPS_API_KEY" ios/Runner/Info.plist
+          fi
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --dart-define=CONVEX_URL="$CONVEX_URL" \
+            --export-options-plist=$HOME/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa

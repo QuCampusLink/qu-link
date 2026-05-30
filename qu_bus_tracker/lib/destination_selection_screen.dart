@@ -1,4 +1,4 @@
-﻿/// Destination selection screen
+/// Destination selection screen
 ///
 /// Provides UI for choosing an origin and destination on the QU campus.
 /// The screen offers search/autocomplete, categorized campus locations,
@@ -9,7 +9,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'firebase_bus_service.dart';
+import 'convex_bus_service.dart';
 import 'bus_service.dart';
 import 'bus_models.dart';
 import 'dart:math' as math;
@@ -110,7 +110,7 @@ class _DestinationSelectionScreenState extends State<DestinationSelectionScreen>
       setState(() {
         _isLoadingRoutes = true;
       });
-      await busService.initializeMockData();
+      await busService.initializeCampusData();
       debugPrint('BusService initialized! Stops: ${busService.getAllStops().length}');
       if (mounted) {
         setState(() {
@@ -187,7 +187,7 @@ class _DestinationSelectionScreenState extends State<DestinationSelectionScreen>
       setState(() {
         _isLoadingRoutes = true;
       });
-      await busService.initializeMockData();
+      await busService.initializeCampusData();
       if (mounted) {
         setState(() {
           _isLoadingRoutes = false;
@@ -269,7 +269,7 @@ class _DestinationSelectionScreenState extends State<DestinationSelectionScreen>
     return commonRoutes.toList();
   }
 
-  // No pseudo 'at_stop' buses: rely solely on live Firebase buses for ETAs.
+  // No pseudo 'at_stop' buses: rely solely on live Convex buses for ETAs.
 
   // Get buses with route information and ETAs
   List<Map<String, dynamic>> _getAvailableBusesWithRoutes() {
@@ -283,13 +283,13 @@ class _DestinationSelectionScreenState extends State<DestinationSelectionScreen>
       return [];
     }
 
-    final firebaseBusService = Provider.of<FirebaseBusService>(context, listen: false);
+    final convexBusService = Provider.of<ConvexBusService>(context, listen: false);
     final busService = BusService();
-    final allBuses = firebaseBusService.getAllActiveBuses();
+    final allBuses = convexBusService.getAllActiveBuses();
     final allRoutes = busService.getAllRoutes();
     
     debugPrint('Connecting routes: $connectingRoutes');
-    debugPrint('Total active buses from Firebase: ${allBuses.length}');
+    debugPrint('Total active buses from Convex: ${allBuses.length}');
     
     // Filter buses that are on connecting routes
     final connectingBuses = allBuses.where((bus) {
@@ -300,7 +300,7 @@ class _DestinationSelectionScreenState extends State<DestinationSelectionScreen>
 
     debugPrint('Connecting buses found: ${connectingBuses.length}');
     
-  // Use only live connecting buses from Firebase (no pseudo 'at_stop' buses)
+  // Use only live connecting buses from Convex (no pseudo 'at_stop' buses)
   final allConnectingBuses = connectingBuses;
     
     debugPrint('Total buses (incoming + at stop): ${allConnectingBuses.length}');

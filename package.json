@@ -1,0 +1,14 @@
+{
+  "name": "qu-bus-convex",
+  "private": true,
+  "scripts": {
+    "dev": "convex dev",
+    "deploy": "convex deploy"
+  },
+  "dependencies": {
+    "convex": "^1.21.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

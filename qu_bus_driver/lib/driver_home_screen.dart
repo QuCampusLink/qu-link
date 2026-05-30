@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:geolocator/geolocator.dart';
 import 'location_service.dart';
-import 'firebase_service.dart';
+import 'convex_service.dart';
 import 'driver_models.dart';
 
 class DriverHomeScreen extends StatefulWidget {
@@ -36,32 +35,23 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     {'id': 'maroon_line', 'name': 'Maroon Line (Express)', 'description': 'Quick express route - 8 minutes'},
   ];
 
-  String _getSelectedRouteName() {
-    final route = _availableRoutes.firstWhere(
-      (r) => r['id'] == _selectedRoute,
-      orElse: () => {'name': 'Unknown Route'},
-    );
-    return route['name']!;
-  }
-
   @override
   void initState() {
     super.initState();
     _requestPermissions();
-    _initializeFirebase();
+    _initializeConvex();
   }
 
-  Future<void> _initializeFirebase() async {
+  Future<void> _initializeConvex() async {
     try {
-      final firebaseService = Provider.of<FirebaseService>(context, listen: false);
-      await firebaseService.initialize();
+      final convexService = Provider.of<ConvexService>(context, listen: false);
+      await convexService.initialize();
     } catch (e) {
-      debugPrint('Error initializing Firebase in UI: $e');
-      // Show user-friendly message
+      debugPrint('Error initializing Convex in UI: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Firebase connection issue. Mock driving will still work.'),
+            content: Text('Convex connection issue. GPS tracking requires a live connection.'),
             backgroundColor: Colors.orange,
             duration: Duration(seconds: 3),
           ),
@@ -91,23 +81,21 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
     try {
       final locationService = Provider.of<LocationService>(context, listen: false);
-      final firebaseService = Provider.of<FirebaseService>(context, listen: false);
 
-      // Start location tracking (works with mock driving too)
+      // Start real GPS tracking
       try {
         await locationService.startLocationTracking();
       } catch (e) {
         debugPrint('Location tracking error: $e');
-        // If real GPS fails but mock driving is active, continue
-        if (!locationService.isMockDriving) {
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Location tracking failed: ${e.toString()}'),
               backgroundColor: Colors.red,
             ),
           );
-          return;
         }
+        return;
       }
 
       // Start sending location data
@@ -136,19 +124,14 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
   void _startLocationBroadcast() {
     final locationService = Provider.of<LocationService>(context, listen: false);
-    final firebaseService = Provider.of<FirebaseService>(context, listen: false);
+    final convexService = Provider.of<ConvexService>(context, listen: false);
 
     // Send location updates every 2 seconds
     Stream.periodic(const Duration(seconds: 2)).listen((_) async {
-      if (_isTracking && firebaseService.isConnected) {
-        // Use current location (from mock driving if active, or real GPS)
-        Position? location = locationService.currentLocation;
-        
-        // If mock driving is active, use mock location; otherwise get real GPS location
-        if (!locationService.isMockDriving) {
-          location = await locationService.getCurrentLocation();
-        }
-        
+      if (_isTracking && convexService.isConnected) {
+        final location = locationService.currentLocation ??
+            await locationService.getCurrentLocation();
+
         if (location != null) {
           final busData = BusLocationData(
             busId: _busIdController.text,
@@ -160,7 +143,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             status: BusStatus.running,
           );
 
-          firebaseService.sendBusLocation(busData);
+          convexService.sendBusLocation(busData);
         }
       }
     });
@@ -168,10 +151,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
   Future<void> _stopTracking() async {
     final locationService = Provider.of<LocationService>(context, listen: false);
-    final firebaseService = Provider.of<FirebaseService>(context, listen: false);
+    final convexService = Provider.of<ConvexService>(context, listen: false);
 
     await locationService.stopLocationTracking();
-    await firebaseService.removeBus(_busIdController.text);
+    await convexService.removeBus(_busIdController.text);
 
     setState(() {
       _isTracking = false;
@@ -180,30 +163,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Location tracking stopped'),
-        backgroundColor: Colors.red,
-      ),
-    );
-  }
-
-  void _startMockDriving() {
-    final locationService = Provider.of<LocationService>(context, listen: false);
-    locationService.startMockDriving(_selectedRoute);
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Started mock driving on ${_getSelectedRouteName()}'),
-        backgroundColor: Colors.orange,
-      ),
-    );
-  }
-
-  void _stopMockDriving() {
-    final locationService = Provider.of<LocationService>(context, listen: false);
-    locationService.stopMockDriving();
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Stopped mock driving'),
         backgroundColor: Colors.red,
       ),
     );
@@ -343,8 +302,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             const SizedBox(height: 16),
 
             // Location Status Card
-            Consumer2<LocationService, FirebaseService>(
-              builder: (context, locationService, firebaseService, child) {
+            Consumer2<LocationService, ConvexService>(
+              builder: (context, locationService, convexService, child) {
                 return Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -367,15 +326,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                         ),
                         const SizedBox(height: 8),
                         _buildStatusRow(
-                          'Firebase Connection',
-                          firebaseService.isConnected ? 'Connected' : 'Disconnected',
-                          firebaseService.isConnected ? Colors.green : Colors.red,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildStatusRow(
-                          'Mock Driving',
-                          locationService.isMockDriving ? 'Active' : 'Inactive',
-                          locationService.isMockDriving ? Colors.orange : Colors.grey,
+                          'Convex Connection',
+                          convexService.isConnected ? 'Connected' : 'Disconnected',
+                          convexService.isConnected ? Colors.green : Colors.red,
                         ),
                         const SizedBox(height: 8),
                         if (locationService.currentLocation != null)
@@ -392,63 +345,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             ),
 
             const SizedBox(height: 24),
-
-            // Mock Driving Button
-            Consumer<LocationService>(
-              builder: (context, locationService, child) {
-                return Card(
-                  color: Colors.orange.shade50,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.directions_car, color: Colors.orange.shade700),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Mock Driving',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.orange,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Simulate driving along the selected route. Location will update automatically.',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                        const SizedBox(height: 12),
-                        ElevatedButton.icon(
-                          onPressed: locationService.isMockDriving
-                              ? _stopMockDriving
-                              : _startMockDriving,
-                          icon: Icon(
-                            locationService.isMockDriving ? Icons.stop : Icons.play_arrow,
-                          ),
-                          label: Text(
-                            locationService.isMockDriving ? 'Stop Mock Driving' : 'Start Mock Driving',
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: locationService.isMockDriving
-                                ? Colors.red
-                                : Colors.orange,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-
-            const SizedBox(height: 16),
 
             // Control Buttons
             Row(

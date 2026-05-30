@@ -1,8 +1,8 @@
-﻿/// Home screen with map and overlays
+/// Home screen with map and overlays
 ///
 /// The primary app screen that shows the interactive map, active bus
 /// markers, route filters, and UI overlays (search, details sheet).
-/// Subscribes to `BusService`, `FirebaseBusService`, and
+/// Subscribes to `BusService`, `ConvexBusService`, and
 /// `LocationService` to keep map markers and ETA information up to date.
 ///
 /// Responsibilities:
@@ -19,7 +19,7 @@ import 'destination_selection_screen.dart';
 import 'bus_details_screen.dart';
 import 'bus_service.dart';
 import 'bus_models.dart';
-import 'firebase_bus_service.dart';
+import 'convex_bus_service.dart';
 import 'location_service.dart';
 import 'maps_config.dart';
 import 'schedule_service.dart';
@@ -202,8 +202,8 @@ class _HomeScreenState extends State<HomeScreen> {
     // Initialize bus service
     try {
       final busService = Provider.of<BusService>(context, listen: false);
-      // No local mock buses required; routes/stops are initialized on demand
-      await busService.initializeMockData();
+      // Load campus routes/stops and Convex live buses
+      await busService.initializeCampusData();
 
       // Populate campus locations from BusService stops
       final stops = busService.getAllStops();
@@ -226,12 +226,12 @@ class _HomeScreenState extends State<HomeScreen> {
       debugPrint('BusService init error: $e');
     }
 
-    // Initialize Firebase bus service
+    // Initialize Convex bus service
     try {
-      final firebaseBusService = Provider.of<FirebaseBusService>(context, listen: false);
-      await firebaseBusService.initialize();
+      final convexBusService = Provider.of<ConvexBusService>(context, listen: false);
+      await convexBusService.initialize();
     } catch (e) {
-      debugPrint('FirebaseBusService init error: $e');
+      debugPrint('ConvexBusService init error: $e');
     }
 
     // Get current location
@@ -347,7 +347,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Set<Marker> _getMarkers(FirebaseBusService firebaseBusService) {
+  Set<Marker> _getMarkers(ConvexBusService convexBusService) {
     Set<Marker> markers = {};
     
     // Pre-create bus icons for all active buses (async operation, but we'll handle it)
@@ -475,8 +475,8 @@ onTap: () {
       }
     }
 
-    // Add bus markers from Firebase
-    for (final bus in firebaseBusService.liveBuses.values) {
+    // Add bus markers from Convex
+    for (final bus in convexBusService.liveBuses.values) {
       if (bus.status == BusStatus.running) {
         // Get route color for marker
         final routeColorAsColor = _getRouteColorAsColor(bus.routeId);
@@ -727,8 +727,8 @@ onTap: () {
                     valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8B0000)),
                   ),
                 )
-              : Consumer<FirebaseBusService>(
-                  builder: (context, firebaseBusService, child) {
+              : Consumer<ConvexBusService>(
+                  builder: (context, convexBusService, child) {
                     return GoogleMap(
                       mapType: MapType.hybrid,
                       onMapCreated: _onMapCreated,
@@ -736,7 +736,7 @@ onTap: () {
                         target: _quCenter,
                         zoom: _quZoom,
                       ),
-                      markers: _getMarkers(firebaseBusService),
+                      markers: _getMarkers(convexBusService),
                       myLocationEnabled: true,
                       myLocationButtonEnabled: false,
                       zoomControlsEnabled: false,

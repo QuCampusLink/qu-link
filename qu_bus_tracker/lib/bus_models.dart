@@ -8,7 +8,7 @@
 ///
 /// Responsibilities:
 /// - Define app-wide data shapes
-/// - Provide stable JSON mappings for Firebase/mock services
+/// - Provide stable JSON mappings for backend services
 /// - Keep lightweight helpers for maps/geolocation integration
 
 import 'package:google_maps_flutter/google_maps_flutter.dart';
