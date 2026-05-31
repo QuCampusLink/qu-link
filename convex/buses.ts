@@ -71,6 +71,31 @@ export const listActive = query({
   args: {},
   handler: async (ctx) => {
     const buses = await ctx.db.query("buses").collect();
-    return buses.filter((bus) => bus.status === "running");
+    const now = Date.now();
+    const staleAfterMs = 3 * 60 * 1000;
+
+    return buses.filter(
+      (bus) =>
+        bus.status === "running" && now - bus.lastUpdated < staleAfterMs,
+    );
+  },
+});
+
+export const pruneStale = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const buses = await ctx.db.query("buses").collect();
+    const now = Date.now();
+    const staleAfterMs = 3 * 60 * 1000;
+    let removed = 0;
+
+    for (const bus of buses) {
+      if (now - bus.lastUpdated >= staleAfterMs) {
+        await ctx.db.delete(bus._id);
+        removed += 1;
+      }
+    }
+
+    return removed;
   },
 });

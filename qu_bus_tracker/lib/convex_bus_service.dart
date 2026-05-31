@@ -21,6 +21,11 @@ class ConvexBusService extends ChangeNotifier {
   Future<void> initialize() async {
     try {
       await _client.ping();
+      try {
+        await _client.mutation('buses:pruneStale', {});
+      } catch (e) {
+        debugPrint('Stale bus prune skipped: $e');
+      }
       await _refreshBuses();
       _pollTimer?.cancel();
       _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -71,6 +76,13 @@ class ConvexBusService extends ChangeNotifier {
         final lng = _toDouble(busData['longitude']);
         if (lat == 0.0 && lng == 0.0) continue;
 
+        final lastUpdatedMs = _toInt(
+          busData['lastUpdated'] ?? busData['timestamp'],
+          DateTime.now().millisecondsSinceEpoch,
+        );
+        final age = DateTime.now().millisecondsSinceEpoch - lastUpdatedMs;
+        if (age > const Duration(minutes: 3).inMilliseconds) continue;
+
         _liveBuses[busId] = Bus(
           id: busId,
           routeId: routeId,
@@ -91,6 +103,14 @@ class ConvexBusService extends ChangeNotifier {
     }
 
     notifyListeners();
+    if (_liveBuses.isNotEmpty) {
+      for (final bus in _liveBuses.values) {
+        debugPrint(
+          'Live bus ${bus.id} @ '
+          '${bus.currentLocation.latitude}, ${bus.currentLocation.longitude}',
+        );
+      }
+    }
     debugPrint('Updated ${_liveBuses.length} live buses from Convex');
   }
 

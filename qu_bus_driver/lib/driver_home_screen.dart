@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'location_service.dart';
@@ -22,6 +23,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   bool _isTracking = false;
   String _selectedRoute = 'blue_route';
   StreamSubscription<void>? _locationBroadcastSubscription;
+  StreamSubscription<Position>? _locationStreamSubscription;
+  DateTime? _lastPublishAt;
+  String? _lastPublishedCoords;
 
   // Available routes for selection
   final List<Map<String, String>> _availableRoutes = [
@@ -111,6 +115,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         _isTracking = true;
       });
 
+      _locationStreamSubscription?.cancel();
+      _locationStreamSubscription = locationService.onLocation.listen(
+        _onLivePosition,
+      );
+
       await _publishCurrentLocation();
       _startLocationBroadcast();
 
@@ -131,12 +140,22 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
   }
 
+  void _onLivePosition(Position position) {
+    if (!_isTracking) return;
+
+    final now = DateTime.now();
+    if (_lastPublishAt != null &&
+        now.difference(_lastPublishAt!) < const Duration(seconds: 1)) {
+      return;
+    }
+
+    unawaited(_publishPosition(position));
+  }
+
   Future<void> _publishCurrentLocation() async {
     if (!_isTracking) return;
 
     final locationService = Provider.of<LocationService>(context, listen: false);
-    final convexService = Provider.of<ConvexService>(context, listen: false);
-
     final location = locationService.currentLocation ??
         await locationService.getCurrentLocation();
 
@@ -144,6 +163,19 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
       debugPrint('No GPS fix yet — skipping Convex publish');
       return;
     }
+
+    await _publishPosition(location);
+  }
+
+  Future<void> _publishPosition(Position location) async {
+    if (!_isTracking) return;
+
+    if (location.latitude == 0 && location.longitude == 0) {
+      debugPrint('Ignoring invalid 0,0 GPS fix');
+      return;
+    }
+
+    final convexService = Provider.of<ConvexService>(context, listen: false);
 
     final busData = BusLocationData(
       busId: _busIdController.text,
@@ -156,8 +188,15 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     );
 
     await convexService.sendBusLocation(busData);
+    _lastPublishAt = DateTime.now();
+    _lastPublishedCoords =
+        '${location.latitude.toStringAsFixed(6)}, ${location.longitude.toStringAsFixed(6)}';
+
+    if (mounted) setState(() {});
+
     debugPrint(
-      'Published live location: ${location.latitude}, ${location.longitude}',
+      'Published live location: ${location.latitude}, ${location.longitude} '
+      '(accuracy ${location.accuracy.toStringAsFixed(0)}m)',
     );
   }
 
@@ -177,6 +216,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
     _locationBroadcastSubscription?.cancel();
     _locationBroadcastSubscription = null;
+    _locationStreamSubscription?.cancel();
+    _locationStreamSubscription = null;
 
     await locationService.stopLocationTracking();
     await convexService.removeBus(_busIdController.text);
@@ -358,10 +399,20 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                         const SizedBox(height: 8),
                         if (locationService.currentLocation != null)
                           _buildStatusRow(
-                            'Current Location',
-                            '${locationService.currentLocation!.latitude.toStringAsFixed(6)}, ${locationService.currentLocation!.longitude.toStringAsFixed(6)}',
+                            'GPS fix',
+                            '${locationService.currentLocation!.latitude.toStringAsFixed(6)}, '
+                            '${locationService.currentLocation!.longitude.toStringAsFixed(6)} '
+                            '(±${locationService.currentLocation!.accuracy.toStringAsFixed(0)}m)',
                             Colors.blue,
                           ),
+                        if (_lastPublishedCoords != null) ...[
+                          const SizedBox(height: 8),
+                          _buildStatusRow(
+                            'Sent to students',
+                            _lastPublishedCoords!,
+                            Colors.green,
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -473,6 +524,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   @override
   void dispose() {
     _locationBroadcastSubscription?.cancel();
+    _locationStreamSubscription?.cancel();
     _driverNameController.dispose();
     _busIdController.dispose();
     _routeIdController.dispose();
