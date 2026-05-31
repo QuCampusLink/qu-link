@@ -67,15 +67,16 @@ class ConvexBusService extends ChangeNotifier {
         final driverName = busData['driverName']?.toString() ?? 'Unknown Driver';
         final routeId = busData['routeId']?.toString() ?? '';
 
+        final lat = _toDouble(busData['latitude']);
+        final lng = _toDouble(busData['longitude']);
+        if (lat == 0.0 && lng == 0.0) continue;
+
         _liveBuses[busId] = Bus(
           id: busId,
           routeId: routeId,
           driverName: driverName.isEmpty ? 'Unknown Driver' : driverName,
           capacity: 0,
-          currentLocation: LatLng(
-            _toDouble(busData['latitude']),
-            _toDouble(busData['longitude']),
-          ),
+          currentLocation: LatLng(lat, lng),
           heading: 0.0,
           lastUpdated: DateTime.fromMillisecondsSinceEpoch(
             _toInt(busData['timestamp'], DateTime.now().millisecondsSinceEpoch),

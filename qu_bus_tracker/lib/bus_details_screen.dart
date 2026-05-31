@@ -20,6 +20,8 @@ import 'bus_models.dart';
 import 'bus_service.dart';
 import 'convex_bus_service.dart';
 import 'schedule_service.dart';
+import 'schedule_arrival_pill.dart';
+import 'live_bus_marker_icon.dart';
 
 const Map<String, LatLng> stopCoordinates = {
   // I series
@@ -62,6 +64,10 @@ const Map<String, LatLng> stopCoordinates = {
   'C11': LatLng(25.374296317071014, 51.48757258895679),
   'C07': LatLng(25.373260616357925, 51.48825006414136),
   'C05': LatLng(25.372089099584354, 51.488961932841086),
+
+  'METRO': LatLng(25.381821556363867, 51.493005795317956),
+  'male_hostel': LatLng(25.366425918064117, 51.48567172372412),
+  'female_hostel': LatLng(25.37018888742163, 51.483284426567515),
 };
 
 class BusDetailsScreen extends StatefulWidget {
@@ -90,14 +96,25 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
   Map<String, dynamic>? _stopScheduleData = null;
   bool _isLoadingSchedule = false;
   Map<String, List<int>> _stopSchedule = {};
+  BitmapDescriptor? _liveBusIcon;
+  String? _focusedBusId;
   bool isLightColor(Color color) {
   return color.computeLuminance() > 0.85;
   }
-  String getScheduleKeyForRoute(String routeName) {
-    final name = routeName.toLowerCase();
-  final ScheduleService _scheduleService = ScheduleService();
-  final stopId = _getStopIdFromName(widget.destination);
-  final target = stopCoordinates[stopId] ?? const LatLng(25.3700, 51.4831);
+  String getScheduleKeyForRoute(BusRoute route) {
+    const hostelRoutes = {
+      'mhostel1',
+      'mhostel2',
+      'mhostel3',
+      'fhostela',
+      'fhostelb',
+      'fhostelc',
+    };
+    if (hostelRoutes.contains(route.id)) {
+      return route.id;
+    }
+
+    final name = route.name.toLowerCase();
 
   if (name.contains('black')) return 'male black';
   if (name.contains('white')) return 'male white';
@@ -146,6 +163,14 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
   'male white': 2,
   'male brown': 3,
   'male maroon': 2,
+
+  // hostel shuttles
+  'mhostel1': 1,
+  'mhostel2': 1,
+  'mhostel3': 1,
+  'fhostela': 1,
+  'fhostelb': 1,
+  'fhostelc': 1,
 };
 
 
@@ -157,6 +182,9 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
   WidgetsBinding.instance.addPostFrameCallback((_) {
     _loadBusData();     // loads routes + buses
     _loadSchedule();    // loads schedule
+    LiveBusMarkerIcon.get().then((icon) {
+      if (mounted) setState(() => _liveBusIcon = icon);
+    });
   });
 }
 
@@ -224,93 +252,6 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
     }
   }
 
-  Widget _buildScheduleContent() {
-    if (_isLoadingSchedule) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(20),
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
-
-    if (_stopSchedule.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 20),
-        const Text(
-          'Schedule',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF1F2933),
-          ),
-        ),
-        const SizedBox(height: 12),
-        ..._stopSchedule.entries.map((entry) {
-          final routeId = entry.key;
-          final arrivals = entry.value;
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  routeId,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: arrivals.take(4).map((minutes) {
-                    final displayText = '$minutes ${minutes == 1 ? 'min' : 'mins'}';
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF5F5F5),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        displayText,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ],
-            ),
-          );
-        }).toList(),
-      ],
-    );
-  }
-  
   void _updateBuses() {
     if (!mounted) return;
     
@@ -328,6 +269,7 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
       setState(() {
         _availableBuses = combinedBuses.values.toList();
       });
+      _followFocusedBus();
     } catch (e) {
       debugPrint('Error updating buses: $e');
       // Continue with existing buses if update fails
@@ -354,28 +296,56 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
     super.dispose();
   }
 
+  void _followFocusedBus() {
+    if (_focusedBusId == null || _mapController == null) return;
+
+    for (final bus in _availableBuses) {
+      if (bus.id == _focusedBusId) {
+        _mapController!.animateCamera(
+          CameraUpdate.newLatLng(bus.currentLocation),
+        );
+        return;
+      }
+    }
+  }
+
+  void _focusOnBus(Bus bus) {
+    setState(() => _focusedBusId = bus.id);
+    _mapController?.animateCamera(
+      CameraUpdate.newLatLngZoom(bus.currentLocation, 18),
+    );
+  }
+
   Set<Marker> _getMarkers() {
-    Set<Marker> markers = {};
-    
-    // Add bus markers
-    for (Bus bus in _availableBuses) {
+    final markers = <Marker>{};
+    final busIcon = _liveBusIcon ??
+        BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+
+    if (_liveBusIcon == null) {
+      LiveBusMarkerIcon.get().then((icon) {
+        if (mounted) setState(() => _liveBusIcon = icon);
+      });
+    }
+
+    for (final bus in _availableBuses) {
       if (_availableRoutes.any((route) => route.id == bus.routeId)) {
         markers.add(
           Marker(
             markerId: MarkerId('bus_${bus.id}'),
             position: bus.currentLocation,
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              _getRouteColor(bus.routeId),
-            ),
+            icon: busIcon,
+            flat: true,
+            anchor: const Offset(0.5, 0.5),
             infoWindow: InfoWindow(
-              title: 'Bus ${bus.id.split('_').last}',
-              snippet: 'Route: ${_getRouteName(bus.routeId)}',
+              title: '🚌 Bus ${bus.id.split('_').last}',
+              snippet: 'Route: ${_getRouteName(bus.routeId)} · ${bus.driverName}',
             ),
+            onTap: () => _focusOnBus(bus),
           ),
         );
       }
     }
-    
+
     return markers;
   }
 
@@ -705,11 +675,13 @@ final target =
                                   0xFF000000,
                             );
                             final isLight = isLightColor(routeColor);
-                            final scheduleKey = getScheduleKeyForRoute(route.name);
+                            final scheduleKey = getScheduleKeyForRoute(route);
 
-                            final hasSchedule = scheduleKey.isNotEmpty && _stopSchedule.containsKey(scheduleKey);
+                            final hasSchedule = scheduleKey.isNotEmpty &&
+                                _stopSchedule.containsKey(scheduleKey);
 
-                            final times = hasSchedule ? _stopSchedule[scheduleKey]! : [];
+                            final times =
+                                hasSchedule ? _stopSchedule[scheduleKey]! : [];
                             final count = routeBusCount[scheduleKey] ?? 0;
 
                             return Container(
@@ -727,14 +699,15 @@ final target =
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  // Colored route header like "Blue Route"
                                   Container(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 16,
                                       vertical: 14,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: isLight ? const Color(0xFFF5F7FA) : routeColor,
+                                      color: isLight
+                                          ? const Color(0xFFF5F7FA)
+                                          : routeColor,
                                       borderRadius: const BorderRadius.vertical(
                                         top: Radius.circular(18),
                                       ),
@@ -745,7 +718,9 @@ final target =
                                       children: [
                                         Icon(
                                           Icons.route,
-                                          color: isLight ? const Color(0xFF1F2933) : Colors.white,
+                                          color: isLight
+                                              ? const Color(0xFF1F2933)
+                                              : Colors.white,
                                           size: 20,
                                         ),
                                         const SizedBox(width: 10),
@@ -759,7 +734,9 @@ final target =
                                                 style: TextStyle(
                                                   fontSize: 16,
                                                   fontWeight: FontWeight.w700,
-                                                  color: isLight ? const Color(0xFF1F2933) : Colors.white,
+                                                  color: isLight
+                                                      ? const Color(0xFF1F2933)
+                                                      : Colors.white,
                                                 ),
                                               ),
                                               if (route.description.isNotEmpty)
@@ -771,8 +748,8 @@ final target =
                                                   style: TextStyle(
                                                     fontSize: 12,
                                                     color: isLight
-    ? const Color(0xFF6B7280)
-    : Colors.white70,
+                                                        ? const Color(0xFF6B7280)
+                                                        : Colors.white70,
                                                   ),
                                                 ),
                                             ],
@@ -791,103 +768,135 @@ final target =
                                                 BorderRadius.circular(999),
                                           ),
                                           child: Text(
-  '$count buses',
-  style: TextStyle(
-    fontSize: 12,
-    fontWeight: FontWeight.w600,
-    color: isLight ? const Color(0xFF1F2933) : Colors.white,
-  ),
-),
+                                            '$count buses',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: isLight
+                                                  ? const Color(0xFF1F2933)
+                                                  : Colors.white,
+                                            ),
+                                          ),
                                         ),
                                       ],
                                     ),
                                   ),
-
-                                  // Schedule inside route card
-                                  if (hasSchedule)
-  Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-    child: Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: times.take(4).map((t) {
-        final eta = _scheduleService.getMinutesUntilArrival(t);
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-  color: isLight
-    ? const Color(0xFFF1F5F9) // brighter, cleaner grey
-      : routeColor.withOpacity(0.12),
-  borderRadius: BorderRadius.circular(999),
-  border: Border.all(
-    color: isLight
-        ? const Color(0xFFD0D5DD)
-        : routeColor.withOpacity(0.25),
-  ),
-),
-          child: Text(
-            '$eta min',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isLight
-    ? const Color(0xFF344054)
-    : routeColor,
-            ),
-          ),
-        );
-      }).toList(),
-    ),
-  ),
-
-                                  // Bus list area
                                   Container(
-  decoration: BoxDecoration(
-    color: Colors.white,
-    borderRadius: const BorderRadius.vertical(
-      bottom: Radius.circular(18),
-    ),
-    border: Border.all(
-      color: const Color(0xFFE4E7EB),
-      width: 1,
-    ),
-  ),
-  padding: const EdgeInsets.symmetric(
-    horizontal: 12,
-    vertical: 12,
+                                    decoration: const BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.vertical(
+                                        bottom: Radius.circular(18),
+                                      ),
+                                      border: Border.fromBorderSide(
+                                        BorderSide(color: Color(0xFFE4E7EB)),
+                                      ),
                                     ),
-                                    child: (buses.isEmpty && !hasSchedule)
-    ? const Padding(
-        padding: EdgeInsets.symmetric(vertical: 4),
-        child: Text(
-          'No buses currently running on this route',
-          style: TextStyle(
-            fontSize: 12,
-            color: Color(0xFF9AA5B1),
-            fontStyle: FontStyle.italic,
-          ),
-        ),
-      )
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        if (hasSchedule)
+                                          Padding(
+                                            padding: const EdgeInsets.fromLTRB(
+                                              12,
+                                              12,
+                                              12,
+                                              12,
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                const Text(
+                                                  'NEXT DEPARTURES',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w700,
+                                                    letterSpacing: 0.8,
+                                                    color: Color(0xFF9AA5B1),
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 10),
+                                                Wrap(
+                                                  spacing: 8,
+                                                  runSpacing: 8,
+                                                  children: times
+                                                      .take(4)
+                                                      .map((t) {
+                                                    return ScheduleArrivalPill(
+                                                      busTimeMinutes: t,
+                                                      scheduleService:
+                                                          _scheduleService,
+                                                    );
+                                                  }).toList(),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        if (hasSchedule && buses.isNotEmpty)
+                                          const Divider(
+                                            height: 1,
+                                            color: Color(0xFFE4E7EB),
+                                          ),
+                                        if (buses.isNotEmpty ||
+                                            !hasSchedule)
+                                          Padding(
+                                            padding: const EdgeInsets.fromLTRB(
+                                              12,
+                                              12,
+                                              12,
+                                              12,
+                                            ),
+                                            child: buses.isEmpty
+                                        ? const Padding(
+                                            padding: EdgeInsets.symmetric(
+                                              vertical: 4,
+                                            ),
+                                            child: Text(
+                                              'No buses currently running on this route',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Color(0xFF9AA5B1),
+                                                fontStyle: FontStyle.italic,
+                                              ),
+                                            ),
+                                          )
                                         : Column(
                                             children: buses.map((bus) {
-                                              return Container(
+                                              final isFocused =
+                                                  _focusedBusId == bus.id;
+                                              return Material(
+                                                color: Colors.transparent,
+                                                child: InkWell(
+                                                  borderRadius:
+                                                      BorderRadius.circular(14),
+                                                  onTap: () => _focusOnBus(bus),
+                                                  child: Container(
                                                 margin: const EdgeInsets.only(
-                                                    bottom: 10),
+                                                  bottom: 10,
+                                                ),
                                                 padding:
                                                     const EdgeInsets.symmetric(
                                                   horizontal: 14,
                                                   vertical: 12,
                                                 ),
                                                 decoration: BoxDecoration(
-                                                  color: Colors.white,
+                                                  color: isFocused
+                                                      ? const Color(0xFFFFF8E7)
+                                                      : Colors.white,
                                                   borderRadius:
-                                                      BorderRadius.circular(
-                                                          14),
+                                                      BorderRadius.circular(14),
+                                                  border: isFocused
+                                                      ? Border.all(
+                                                          color: const Color(
+                                                            0xFF8B0000,
+                                                          ),
+                                                          width: 1.5,
+                                                        )
+                                                      : null,
                                                   boxShadow: [
                                                     BoxShadow(
-                                                      color: Colors
-                                                          .black
+                                                      color: Colors.black
                                                           .withOpacity(0.06),
                                                       blurRadius: 14,
                                                       offset:
@@ -902,16 +911,14 @@ final target =
                                                       height: 10,
                                                       decoration: BoxDecoration(
                                                         color: bus.status ==
-                                                                BusStatus
-                                                                    .running
+                                                                BusStatus.running
                                                             ? Colors.green
                                                             : bus.status ==
                                                                     BusStatus
                                                                         .delayed
                                                                 ? Colors.orange
                                                                 : Colors.grey,
-                                                        shape:
-                                                            BoxShape.circle,
+                                                        shape: BoxShape.circle,
                                                       ),
                                                     ),
                                                     const SizedBox(width: 12),
@@ -930,10 +937,14 @@ final target =
                                                                   FontWeight
                                                                       .w600,
                                                               color: Color(
-                                                                  0xFF1F2933),
+                                                                0xFF1F2933,
+                                                              ),
                                                             ),
                                                           ),
-                                                          if (bus.driverName.isNotEmpty)
+                                                          if (!bus.id.startsWith(
+                                                                  'mock_') &&
+                                                              bus.driverName
+                                                                  .isNotEmpty)
                                                             Padding(
                                                               padding:
                                                                   const EdgeInsets
@@ -946,7 +957,8 @@ final target =
                                                                     const TextStyle(
                                                                   fontSize: 11,
                                                                   color: Color(
-                                                                      0xFF7B8794),
+                                                                    0xFF7B8794,
+                                                                  ),
                                                                 ),
                                                               ),
                                                             ),
@@ -980,7 +992,8 @@ final target =
                                                                         ? Colors
                                                                             .orange
                                                                         : const Color(
-                                                                            0xFF9AA5B1),
+                                                                            0xFF9AA5B1,
+                                                                          ),
                                                               ),
                                                             ),
                                                           ),
@@ -1010,22 +1023,25 @@ final target =
 
                                                         if (isDeparture) {
                                                           pillBg = const Color(
-                                                              0xFFFFE5E5);
-                                                          pillText =
-                                                              const Color(
-                                                                  0xFF8B0000);
+                                                            0xFFFFE5E5,
+                                                          );
+                                                          pillText = const Color(
+                                                            0xFF8B0000,
+                                                          );
                                                         } else if (isDepartingSoon) {
                                                           pillBg = const Color(
-                                                              0xFFFFF3CD);
-                                                          pillText =
-                                                              const Color(
-                                                                  0xFF856404);
+                                                            0xFFFFF3CD,
+                                                          );
+                                                          pillText = const Color(
+                                                            0xFF856404,
+                                                          );
                                                         } else {
                                                           pillBg = const Color(
-                                                              0xFFE3F9E5);
-                                                          pillText =
-                                                              const Color(
-                                                                  0xFF037F4C);
+                                                            0xFFE3F9E5,
+                                                          );
+                                                          pillText = const Color(
+                                                            0xFF037F4C,
+                                                          );
                                                         }
 
                                                         return Container(
@@ -1041,17 +1057,21 @@ final target =
                                                             borderRadius:
                                                                 BorderRadius
                                                                     .circular(
-                                                                        999),
+                                                              999,
+                                                            ),
                                                             boxShadow: [
                                                               BoxShadow(
                                                                 color: Colors
                                                                     .black
                                                                     .withOpacity(
-                                                                        0.08),
+                                                                  0.08,
+                                                                ),
                                                                 blurRadius: 10,
                                                                 offset:
                                                                     const Offset(
-                                                                        0, 4),
+                                                                  0,
+                                                                  4,
+                                                                ),
                                                               ),
                                                             ],
                                                           ),
@@ -1070,9 +1090,14 @@ final target =
                                                     ),
                                                   ],
                                                 ),
+                                              ),
+                                                ),
                                               );
                                             }).toList(),
                                           ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ],
                               ),

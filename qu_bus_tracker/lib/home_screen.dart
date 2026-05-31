@@ -1,4 +1,4 @@
-/// Home screen with map and overlays
+﻿/// Home screen with map and overlays
 ///
 /// The primary app screen that shows the interactive map, active bus
 /// markers, route filters, and UI overlays (search, details sheet).
@@ -23,6 +23,8 @@ import 'convex_bus_service.dart';
 import 'location_service.dart';
 import 'maps_config.dart';
 import 'schedule_service.dart';
+import 'schedule_arrival_pill.dart';
+import 'live_bus_marker_icon.dart';
 
 class HomeScreen extends StatefulWidget {
   final String gender;
@@ -44,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _showAllBuses = false; // Toggle to show all live buses
   final Map<String, BitmapDescriptor> _busIconCache = {}; // Cache for bus icons by route color (key: color value as string)
   BitmapDescriptor? _stopIcon; // Cached custom stop icon (blue)
+  BitmapDescriptor? _liveBusIcon;
   final TextEditingController _searchController = TextEditingController();
   Map<String, String?> _stopGenders = {};
   Timer? _clockTimer;
@@ -156,20 +159,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     spacing: 8,
                     runSpacing: 8,
                     children: entry.value.map((minutes) {
-                      final eta = _scheduleService.getMinutesUntilArrival(minutes);
-                      return Text(
-                        '${_scheduleService.formatMinutes(minutes)} ($eta min)',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF8B0000),
-                        ),
+                      return ScheduleArrivalPill(
+                        busTimeMinutes: minutes,
+                        scheduleService: _scheduleService,
                       );
                     }).toList(),
                   ),
                 ],
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );
@@ -230,6 +229,9 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final convexBusService = Provider.of<ConvexBusService>(context, listen: false);
       await convexBusService.initialize();
+      LiveBusMarkerIcon.get().then((icon) {
+        if (mounted) setState(() => _liveBusIcon = icon);
+      });
     } catch (e) {
       debugPrint('ConvexBusService init error: $e');
     }
@@ -380,10 +382,22 @@ class _HomeScreenState extends State<HomeScreen> {
             snippet: 'Your destination',
           ),
           onTap: () {
+            final busService = Provider.of<BusService>(context, listen: false);
+            final stop = busService.getAllStops().firstWhere(
+              (s) => s.name == _selectedDestination,
+              orElse: () => BusStop(
+                id: _selectedDestination!,
+                name: _selectedDestination!,
+                description: '',
+                location: _campusLocations[_selectedDestination]!,
+                routes: [],
+              ),
+            );
             setState(() {
               _selectedMarkerLocation = _selectedDestination!;
-              _showAllBuses = false; // Hide live buses button when destination marker is tapped
+              _showAllBuses = false;
             });
+            _loadStopSchedule(stop.id);
             // Close buses list if open
             if (_busesListSheetController.isAttached) {
               _busesListSheetController.animateTo(
@@ -475,45 +489,34 @@ onTap: () {
       }
     }
 
-    // Add bus markers from Convex
+    // Live GPS buses — 🚌 at driver's real-time Convex location
+    final busIcon = _liveBusIcon ??
+        BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+    if (_liveBusIcon == null) {
+      LiveBusMarkerIcon.get().then((icon) {
+        if (mounted) setState(() => _liveBusIcon = icon);
+      });
+    }
+
     for (final bus in convexBusService.liveBuses.values) {
       if (bus.status == BusStatus.running) {
-        // Get route color for marker
-        final routeColorAsColor = _getRouteColorAsColor(bus.routeId);
         final routeName = _getRouteName(bus.routeId);
-        
-        // Get or create bus icon (use cached if available, otherwise use default for now)
-        final colorKey = routeColorAsColor.value.toString();
-        BitmapDescriptor busIcon;
-        if (_busIconCache.containsKey(colorKey)) {
-          busIcon = _busIconCache[colorKey]!;
-        } else {
-          // Use default marker temporarily, icon will be cached on next rebuild
-          busIcon = BitmapDescriptor.defaultMarkerWithHue(_getRouteColor(bus.routeId));
-          // Asynchronously create and cache the icon
-          _createBusIcon(routeColorAsColor).then((icon) {
-            if (mounted) {
-              setState(() {
-                _busIconCache[colorKey] = icon;
-              });
-            }
-          });
-        }
-        
+
         markers.add(
           Marker(
             markerId: MarkerId('bus_${bus.id}'),
             position: bus.currentLocation,
             icon: busIcon,
-            rotation: bus.heading,
+            flat: true,
             anchor: const Offset(0.5, 0.5),
             infoWindow: InfoWindow(
-              title: 'Bus ${bus.id}',
-              snippet: '$routeName\nDriver: ${bus.driverName}',
+              title: '🚌 Bus ${bus.id}',
+              snippet: '$routeName · ${bus.driverName}',
             ),
             onTap: () {
-              // Optionally show bus details when tapped
-              debugPrint('Tapped on bus ${bus.id}');
+              _mapController?.animateCamera(
+                CameraUpdate.newLatLngZoom(bus.currentLocation, 18),
+              );
             },
           ),
         );
@@ -1361,7 +1364,9 @@ onTap: () {
                                       setState(() {
                                         _selectedDestination = stop.name;
                                         _selectedMarkerLocation = stop.name;
+                                        _showAllBuses = false;
                                       });
+                                      _loadStopSchedule(stop.id);
                                       if (_campusLocations.containsKey(stop.name)) {
                                         _mapController?.animateCamera(
                                           CameraUpdate.newLatLng(_campusLocations[stop.name]!),
@@ -1372,6 +1377,15 @@ onTap: () {
                                         duration: const Duration(milliseconds: 300),
                                         curve: Curves.easeIn,
                                       );
+                                      Future.delayed(const Duration(milliseconds: 100), () {
+                                        if (_detailsSheetController.isAttached && mounted) {
+                                          _detailsSheetController.animateTo(
+                                            0.3,
+                                            duration: const Duration(milliseconds: 300),
+                                            curve: Curves.easeOut,
+                                          );
+                                        }
+                                      });
                                     },
                                   ),
                                 );

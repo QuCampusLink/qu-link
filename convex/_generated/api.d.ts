@@ -11,6 +11,7 @@
 import type * as buses from "../buses.js";
 import type * as health from "../health.js";
 import type * as stops from "../stops.js";
+import type * as stopsSeedData from "../stopsSeedData.js";
 
 import type {
   ApiFromModules,
@@ -22,6 +23,7 @@ declare const fullApi: ApiFromModules<{
   buses: typeof buses;
   health: typeof health;
   stops: typeof stops;
+  stopsSeedData: typeof stopsSeedData;
 }>;
 
 /**

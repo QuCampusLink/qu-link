@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -19,6 +21,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   
   bool _isTracking = false;
   String _selectedRoute = 'blue_route';
+  StreamSubscription<void>? _locationBroadcastSubscription;
 
   // Available routes for selection
   final List<Map<String, String>> _availableRoutes = [
@@ -33,6 +36,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     {'id': 'white_line', 'name': 'White Line (Inner Loop)', 'description': 'Inner campus loop - 18 minutes'},
     {'id': 'brown_line', 'name': 'Brown Line (Research & Sports)', 'description': 'Research complex and sports facilities - 15 minutes'},
     {'id': 'maroon_line', 'name': 'Maroon Line (Express)', 'description': 'Quick express route - 8 minutes'},
+    {'id': 'mhostel1', 'name': 'Male Hostel Bus 1', 'description': 'Male Hostel ↔ Metro'},
+    {'id': 'mhostel2', 'name': 'Male Hostel Bus 2', 'description': 'Male Hostel ↔ Metro'},
+    {'id': 'mhostel3', 'name': 'Male Hostel Bus 3', 'description': 'Male Hostel ↔ Metro'},
+    {'id': 'fhostela', 'name': 'Female Hostel Bus A', 'description': 'Female Hostel ↔ Metro'},
+    {'id': 'fhostelb', 'name': 'Female Hostel Bus B', 'description': 'Female Hostel ↔ Metro'},
+    {'id': 'fhostelc', 'name': 'Female Hostel Bus C', 'description': 'Female Hostel ↔ Metro'},
   ];
 
   @override
@@ -98,12 +107,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
         return;
       }
 
-      // Start sending location data
-      _startLocationBroadcast();
-
       setState(() {
         _isTracking = true;
       });
+
+      await _publishCurrentLocation();
+      _startLocationBroadcast();
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -122,29 +131,42 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
   }
 
-  void _startLocationBroadcast() {
+  Future<void> _publishCurrentLocation() async {
+    if (!_isTracking) return;
+
     final locationService = Provider.of<LocationService>(context, listen: false);
     final convexService = Provider.of<ConvexService>(context, listen: false);
 
-    // Send location updates every 2 seconds
-    Stream.periodic(const Duration(seconds: 2)).listen((_) async {
-      if (_isTracking && convexService.isConnected) {
-        final location = locationService.currentLocation ??
-            await locationService.getCurrentLocation();
+    final location = locationService.currentLocation ??
+        await locationService.getCurrentLocation();
 
-        if (location != null) {
-          final busData = BusLocationData(
-            busId: _busIdController.text,
-            driverName: _driverNameController.text,
-            routeId: _selectedRoute,
-            latitude: location.latitude,
-            longitude: location.longitude,
-            timestamp: DateTime.now(),
-            status: BusStatus.running,
-          );
+    if (location == null) {
+      debugPrint('No GPS fix yet — skipping Convex publish');
+      return;
+    }
 
-          convexService.sendBusLocation(busData);
-        }
+    final busData = BusLocationData(
+      busId: _busIdController.text,
+      driverName: _driverNameController.text,
+      routeId: _selectedRoute,
+      latitude: location.latitude,
+      longitude: location.longitude,
+      timestamp: DateTime.now(),
+      status: BusStatus.running,
+    );
+
+    await convexService.sendBusLocation(busData);
+    debugPrint(
+      'Published live location: ${location.latitude}, ${location.longitude}',
+    );
+  }
+
+  void _startLocationBroadcast() {
+    _locationBroadcastSubscription?.cancel();
+    _locationBroadcastSubscription =
+        Stream.periodic(const Duration(seconds: 2)).listen((_) async {
+      if (_isTracking) {
+        await _publishCurrentLocation();
       }
     });
   }
@@ -152,6 +174,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Future<void> _stopTracking() async {
     final locationService = Provider.of<LocationService>(context, listen: false);
     final convexService = Provider.of<ConvexService>(context, listen: false);
+
+    _locationBroadcastSubscription?.cancel();
+    _locationBroadcastSubscription = null;
 
     await locationService.stopLocationTracking();
     await convexService.removeBus(_busIdController.text);
@@ -447,6 +472,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
   @override
   void dispose() {
+    _locationBroadcastSubscription?.cancel();
     _driverNameController.dispose();
     _busIdController.dispose();
     _routeIdController.dispose();

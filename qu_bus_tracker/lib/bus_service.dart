@@ -38,7 +38,7 @@ class BusService extends ChangeNotifier{
         name: 'Metro Station',
         description: 'Main QU Metro Station',
         location: const LatLng(25.381821556363867, 51.493005795317956),
-        routes: ['black_line', 'brown_line', 'maroon_line', 'red_line','metro_a','metro_b','metro_c'],
+        routes: ['black_line', 'brown_line', 'maroon_line', 'red_line','metro_a','metro_b','metro_c','mhostel1','mhostel2','mhostel3','fhostela','fhostelb','fhostelc'],
         gender: null,
       ),
       
@@ -297,6 +297,26 @@ class BusService extends ChangeNotifier{
         routes: ['zone_a','dark_green_route'],
         gender: 'female',
       ),
+
+      // Male Hostel - Male Only
+      BusStop(
+        id: 'male_hostel',
+        name: 'Male Hostel',
+        description: 'Male student housing — mhostel1, mhostel2, mhostel3',
+        location: const LatLng(25.366425918064117, 51.48567172372412),
+        routes: ['mhostel1', 'mhostel2', 'mhostel3'],
+        gender: 'male',
+      ),
+
+      // Female Hostel - Female Only
+      BusStop(
+        id: 'female_hostel',
+        name: 'Female Hostel',
+        description: 'Female student housing — fhostela, fhostelb, fhostelc',
+        location: const LatLng(25.37018888742163, 51.483284426567515),
+        routes: ['fhostela', 'fhostelb', 'fhostelc'],
+        gender: 'female',
+      ),
     ]);
   }
 
@@ -505,7 +525,59 @@ BusRoute(
   color: '#00695C',
   stopIds: ['METRO', 'I06'],
   estimatedDuration: const Duration(minutes: 5),
-),//new routes
+),
+
+      // Male Hostel shuttles
+      BusRoute(
+        id: 'mhostel1',
+        name: 'Male Hostel Bus 1',
+        description: 'Male Hostel ↔ Metro',
+        color: '#1565C0',
+        stopIds: ['male_hostel', 'METRO'],
+        estimatedDuration: const Duration(minutes: 8),
+      ),
+      BusRoute(
+        id: 'mhostel2',
+        name: 'Male Hostel Bus 2',
+        description: 'Male Hostel ↔ Metro',
+        color: '#1976D2',
+        stopIds: ['male_hostel', 'METRO'],
+        estimatedDuration: const Duration(minutes: 8),
+      ),
+      BusRoute(
+        id: 'mhostel3',
+        name: 'Male Hostel Bus 3',
+        description: 'Male Hostel ↔ Metro',
+        color: '#1E88E5',
+        stopIds: ['male_hostel', 'METRO'],
+        estimatedDuration: const Duration(minutes: 8),
+      ),
+
+      // Female Hostel shuttles
+      BusRoute(
+        id: 'fhostela',
+        name: 'Female Hostel Bus A',
+        description: 'Female Hostel ↔ Metro',
+        color: '#AD1457',
+        stopIds: ['female_hostel', 'METRO'],
+        estimatedDuration: const Duration(minutes: 8),
+      ),
+      BusRoute(
+        id: 'fhostelb',
+        name: 'Female Hostel Bus B',
+        description: 'Female Hostel ↔ Metro',
+        color: '#C2185B',
+        stopIds: ['female_hostel', 'METRO'],
+        estimatedDuration: const Duration(minutes: 8),
+      ),
+      BusRoute(
+        id: 'fhostelc',
+        name: 'Female Hostel Bus C',
+        description: 'Female Hostel ↔ Metro',
+        color: '#D81B60',
+        stopIds: ['female_hostel', 'METRO'],
+        estimatedDuration: const Duration(minutes: 8),
+      ),
 
     ]);
   }

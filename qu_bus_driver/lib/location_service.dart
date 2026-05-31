@@ -35,10 +35,18 @@ class LocationService extends ChangeNotifier {
 
     const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
+      distanceFilter: 0,
     );
 
     _isTracking = true;
+    notifyListeners();
+
+    // Seed an immediate fix before the stream delivers the first event.
+    _currentLocation = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+      ),
+    );
     notifyListeners();
 
     _positionStreamSubscription = Geolocator.getPositionStream(

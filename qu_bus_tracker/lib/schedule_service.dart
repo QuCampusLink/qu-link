@@ -13,7 +13,7 @@ class ScheduleService {
     try {
       final result = await _client.query(
         'stops:getSchedule',
-        {'stopId': stopId.toUpperCase()},
+        {'stopId': stopId},
       );
 
       if (result == null) {
@@ -30,36 +30,56 @@ class ScheduleService {
     }
   }
 
+  /// Parse minute-of-day values from Convex/JSON (int, double, or string).
+  static int? parseMinute(dynamic value) {
+    if (value is int) return value;
+    if (value is double) return value.round();
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+
+  static List<int> parseTimeList(dynamic times) {
+    if (times is! List) return [];
+    return times.map(parseMinute).whereType<int>().toList()..sort();
+  }
+
+  static Map<String, dynamic>? routesMap(Map<String, dynamic>? routesData) {
+    if (routesData == null) return null;
+    final raw = routesData['routes'];
+    if (raw is! Map) return null;
+    return Map<String, dynamic>.from(raw);
+  }
+
   Map<String, List<int>> getNextBuses(Map<String, dynamic> routesData) {
     final result = <String, List<int>>{};
+    final routes = routesMap(routesData);
+    if (routes == null) return result;
 
-    if (routesData['routes'] is Map<String, dynamic>) {
-      final routes = routesData['routes'] as Map<String, dynamic>;
-      final now = DateTime.now();
-      final currentMinutes = now.hour * 60 + now.minute;
+    final now = DateTime.now();
+    final currentMinutes = now.hour * 60 + now.minute;
 
-      routes.forEach((routeName, dynamic times) {
-        if (times is List) {
-          final sortedTimes = times.whereType<int>().toList()..sort();
+    for (final entry in routes.entries) {
+      final sortedTimes = parseTimeList(entry.value);
+      if (sortedTimes.isEmpty) continue;
 
-          final nextTimes = sortedTimes.where((t) => t > currentMinutes).toList();
+      final nextTimes =
+          sortedTimes.where((t) => t > currentMinutes).toList();
 
-          if (nextTimes.length >= 3) {
-            result[routeName] = nextTimes.take(3).cast<int>().toList();
-          } else if (sortedTimes.isNotEmpty) {
-            final remaining = nextTimes.length;
-            final needed = 3 - remaining;
-            final combined = <int>[
-              ...nextTimes,
-              ...sortedTimes.take(needed),
-            ];
-            result[routeName] = combined;
-          } else {
-            result[routeName] = sortedTimes.take(3).cast<int>().toList();
-          }
-        }
-      });
+      if (nextTimes.length >= 3) {
+        result[entry.key] = nextTimes.take(3).toList();
+      } else if (nextTimes.isNotEmpty) {
+        final needed = 3 - nextTimes.length;
+        result[entry.key] = [
+          ...nextTimes,
+          ...sortedTimes.take(needed),
+        ];
+      } else {
+        // After last run today, wrap to tomorrow morning.
+        result[entry.key] = sortedTimes.take(3).toList();
+      }
     }
+
     return result;
   }
 
@@ -77,5 +97,28 @@ class ScheduleService {
     var diff = busTime - currentMinutes;
     if (diff < 0) diff += 1440;
     return diff;
+  }
+
+  /// Scheduled time already passed today — shown as the next day's run.
+  bool isTomorrow(int busTimeMinutes) {
+    final currentMinutes = DateTime.now().hour * 60 + DateTime.now().minute;
+    return busTimeMinutes <= currentMinutes;
+  }
+
+  /// Compact label for route-card schedule pills.
+  String formatArrivalLabel(int busTimeMinutes) {
+    if (isTomorrow(busTimeMinutes)) {
+      return 'Tomorrow · ${formatMinutes(busTimeMinutes)}';
+    }
+    return '${getMinutesUntilArrival(busTimeMinutes)} min';
+  }
+
+  /// Descriptive label for stop-sheet schedule rows.
+  String formatArrivalDetail(int busTimeMinutes) {
+    if (isTomorrow(busTimeMinutes)) {
+      return 'Next bus tomorrow at ${formatMinutes(busTimeMinutes)}';
+    }
+    final eta = getMinutesUntilArrival(busTimeMinutes);
+    return '${formatMinutes(busTimeMinutes)} ($eta min)';
   }
 }

@@ -1,4 +1,4 @@
-/// Destination selection screen
+﻿/// Destination selection screen
 ///
 /// Provides UI for choosing an origin and destination on the QU campus.
 /// The screen offers search/autocomplete, categorized campus locations,
@@ -67,6 +67,10 @@ class _DestinationSelectionScreenState extends State<DestinationSelectionScreen>
     ],
     'Sports & Recreation': [
       {'name': 'A07 Sports Facilities and Events Department', 'description': 'A07 - Sports Facilities and Events Department'},
+    ],
+    'Residence': [
+      {'name': 'Male Hostel', 'description': 'Male student housing — mhostel1, mhostel2, mhostel3'},
+      {'name': 'Female Hostel', 'description': 'Female student housing — fhostela, fhostelb, fhostelc'},
     ],
     'Women Only': [
       {'name': 'D05 Women\'s Foundation', 'description': 'D05 - Women\'s Foundation'},
