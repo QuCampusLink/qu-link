@@ -25,6 +25,7 @@ import 'maps_config.dart';
 import 'schedule_service.dart';
 import 'schedule_arrival_pill.dart';
 import 'live_bus_marker_icon.dart';
+import 'bus_eta_helper.dart';
 
 class HomeScreen extends StatefulWidget {
   final String gender;
@@ -47,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final Map<String, BitmapDescriptor> _busIconCache = {}; // Cache for bus icons by route color (key: color value as string)
   BitmapDescriptor? _stopIcon; // Cached custom stop icon (blue)
   BitmapDescriptor? _liveBusIcon;
+  String? _focusedLiveBusId;
   final TextEditingController _searchController = TextEditingController();
   Map<String, String?> _stopGenders = {};
   Timer? _clockTimer;
@@ -349,6 +351,79 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  (String?, LatLng?) _resolveStopForEta() {
+    final stopName = _selectedMarkerLocation ?? _selectedDestination;
+    if (stopName == null || !_campusLocations.containsKey(stopName)) {
+      return (null, null);
+    }
+    return (stopName, _campusLocations[stopName]);
+  }
+
+  void _clearLiveBusSelection() {
+    final busId = _focusedLiveBusId;
+    if (busId == null) return;
+    setState(() => _focusedLiveBusId = null);
+    BusEtaHelper.hideFromMap(
+      mapController: _mapController,
+      markerId: 'bus_$busId',
+    );
+  }
+
+  void _onLiveBusTapped(Bus bus) {
+    setState(() => _focusedLiveBusId = bus.id);
+
+    _mapController?.animateCamera(
+      CameraUpdate.newLatLngZoom(bus.currentLocation, 18),
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      BusEtaHelper.showOnMap(
+        mapController: _mapController,
+        markerId: 'bus_${bus.id}',
+      );
+    });
+
+    final (stopName, _) = _resolveStopForEta();
+    if (stopName == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tap a stop to see distance and arrival time'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Widget? _buildLiveBusEtaCard(ConvexBusService convexBusService) {
+    if (_focusedLiveBusId == null) return null;
+
+    Bus? bus;
+    for (final candidate in convexBusService.liveBuses.values) {
+      if (candidate.id == _focusedLiveBusId) {
+        bus = candidate;
+        break;
+      }
+    }
+    if (bus == null) return null;
+
+    final (stopName, stopLocation) = _resolveStopForEta();
+    if (stopName == null || stopLocation == null) return null;
+
+    final eta = BusEtaHelper.compute(bus.currentLocation, stopLocation);
+    final busLabel = bus.id.contains('_')
+        ? 'Bus ${bus.id.split('_').last}'
+        : 'Bus ${bus.id}';
+
+    return BusEtaMapCard(
+      busLabel: busLabel,
+      routeName: _getRouteName(bus.routeId),
+      stopName: stopName,
+      eta: eta,
+      routeColor: _getRouteColorAsColor(bus.routeId),
+      onClose: _clearLiveBusSelection,
+    );
+  }
+
   Set<Marker> _getMarkers(ConvexBusService convexBusService) {
     Set<Marker> markers = {};
     
@@ -498,9 +573,15 @@ onTap: () {
       });
     }
 
+    final (etaStopName, etaStopLocation) = _resolveStopForEta();
+
     for (final bus in convexBusService.liveBuses.values) {
       if (bus.status == BusStatus.running) {
         final routeName = _getRouteName(bus.routeId);
+        BusEtaInfo? etaInfo;
+        if (etaStopLocation != null) {
+          etaInfo = BusEtaHelper.compute(bus.currentLocation, etaStopLocation);
+        }
 
         markers.add(
           Marker(
@@ -509,15 +590,13 @@ onTap: () {
             icon: busIcon,
             flat: true,
             anchor: const Offset(0.5, 0.5),
-            infoWindow: InfoWindow(
-              title: '🚌 Bus ${bus.id}',
-              snippet: '$routeName · ${bus.driverName}',
+            infoWindow: BusEtaHelper.buildInfoWindow(
+              bus: bus,
+              routeName: routeName,
+              stopName: etaStopName,
+              eta: etaInfo,
             ),
-            onTap: () {
-              _mapController?.animateCamera(
-                CameraUpdate.newLatLngZoom(bus.currentLocation, 18),
-              );
-            },
+            onTap: () => _onLiveBusTapped(bus),
           ),
         );
       }
@@ -732,33 +811,51 @@ onTap: () {
                 )
               : Consumer<ConvexBusService>(
                   builder: (context, convexBusService, child) {
-                    return GoogleMap(
-                      mapType: MapType.hybrid,
-                      onMapCreated: _onMapCreated,
-                      initialCameraPosition: const CameraPosition(
-                        target: _quCenter,
-                        zoom: _quZoom,
-                      ),
-                      markers: _getMarkers(convexBusService),
-                      myLocationEnabled: true,
-                      myLocationButtonEnabled: false,
-                      zoomControlsEnabled: false,
-                      onTap: (LatLng position) {
-                        // Clear destination selection and close sheet when tapping on map
-                        setState(() {
-                          _selectedDestination = null;
-                          _selectedMarkerLocation = null;
-                        });
-                        // Only animate if controller is attached (sheet exists)
-                        if (_detailsSheetController.isAttached) {
-                          _detailsSheetController.animateTo(
-                            0.0,
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeIn,
-                          );
-                        }
-                      },
+                    final etaCard = _buildLiveBusEtaCard(convexBusService);
 
+                    return Stack(
+                      children: [
+                        GoogleMap(
+                          mapType: MapType.hybrid,
+                          onMapCreated: _onMapCreated,
+                          initialCameraPosition: const CameraPosition(
+                            target: _quCenter,
+                            zoom: _quZoom,
+                          ),
+                          markers: _getMarkers(convexBusService),
+                          myLocationEnabled: true,
+                          myLocationButtonEnabled: false,
+                          zoomControlsEnabled: false,
+                          onTap: (LatLng position) {
+                            final busId = _focusedLiveBusId;
+                            setState(() {
+                              _selectedDestination = null;
+                              _selectedMarkerLocation = null;
+                              _focusedLiveBusId = null;
+                            });
+                            if (busId != null) {
+                              BusEtaHelper.hideFromMap(
+                                mapController: _mapController,
+                                markerId: 'bus_$busId',
+                              );
+                            }
+                            if (_detailsSheetController.isAttached) {
+                              _detailsSheetController.animateTo(
+                                0.0,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeIn,
+                              );
+                            }
+                          },
+                        ),
+                        if (etaCard != null)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 72,
+                            child: etaCard,
+                          ),
+                      ],
                     );
                   },
                 ),

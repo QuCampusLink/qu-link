@@ -22,6 +22,7 @@ import 'convex_bus_service.dart';
 import 'schedule_service.dart';
 import 'schedule_arrival_pill.dart';
 import 'live_bus_marker_icon.dart';
+import 'bus_eta_helper.dart';
 
 const Map<String, LatLng> stopCoordinates = {
   // I series
@@ -304,9 +305,28 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
         _mapController!.animateCamera(
           CameraUpdate.newLatLng(bus.currentLocation),
         );
+        BusEtaHelper.showOnMap(
+          mapController: _mapController,
+          markerId: 'bus_${bus.id}',
+        );
         return;
       }
     }
+  }
+
+  void _clearFocusedBus() {
+    final busId = _focusedBusId;
+    if (busId == null) return;
+    setState(() => _focusedBusId = null);
+    BusEtaHelper.hideFromMap(
+      mapController: _mapController,
+      markerId: 'bus_$busId',
+    );
+  }
+
+  LatLng _destinationStopLocation() {
+    final stopId = _getStopIdFromName(widget.destination);
+    return stopCoordinates[stopId] ?? const LatLng(25.3700, 51.4831);
   }
 
   void _focusOnBus(Bus bus) {
@@ -314,12 +334,48 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
     _mapController?.animateCamera(
       CameraUpdate.newLatLngZoom(bus.currentLocation, 18),
     );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      BusEtaHelper.showOnMap(
+        mapController: _mapController,
+        markerId: 'bus_${bus.id}',
+      );
+    });
+  }
+
+  Widget? _buildFocusedBusEtaCard() {
+    if (_focusedBusId == null) return null;
+
+    Bus? bus;
+    for (final candidate in _availableBuses) {
+      if (candidate.id == _focusedBusId) {
+        bus = candidate;
+        break;
+      }
+    }
+    if (bus == null) return null;
+
+    final stopLocation = _destinationStopLocation();
+    final eta = BusEtaHelper.compute(bus.currentLocation, stopLocation);
+    final busLabel = bus.id.contains('_')
+        ? 'Bus ${bus.id.split('_').last}'
+        : 'Bus ${bus.id}';
+
+    return BusEtaMapCard(
+      busLabel: busLabel,
+      routeName: _getRouteName(bus.routeId),
+      stopName: widget.destination,
+      eta: eta,
+      routeColor: _getRouteColorAsColor(bus.routeId),
+      onClose: _clearFocusedBus,
+    );
   }
 
   Set<Marker> _getMarkers() {
     final markers = <Marker>{};
     final busIcon = _liveBusIcon ??
         BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+    final stopLocation = _destinationStopLocation();
 
     if (_liveBusIcon == null) {
       LiveBusMarkerIcon.get().then((icon) {
@@ -329,6 +385,9 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
 
     for (final bus in _availableBuses) {
       if (_availableRoutes.any((route) => route.id == bus.routeId)) {
+        final routeName = _getRouteName(bus.routeId);
+        final etaInfo = BusEtaHelper.compute(bus.currentLocation, stopLocation);
+
         markers.add(
           Marker(
             markerId: MarkerId('bus_${bus.id}'),
@@ -336,9 +395,11 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
             icon: busIcon,
             flat: true,
             anchor: const Offset(0.5, 0.5),
-            infoWindow: InfoWindow(
-              title: '🚌 Bus ${bus.id.split('_').last}',
-              snippet: 'Route: ${_getRouteName(bus.routeId)} · ${bus.driverName}',
+            infoWindow: BusEtaHelper.buildInfoWindow(
+              bus: bus,
+              routeName: routeName,
+              stopName: widget.destination,
+              eta: etaInfo,
             ),
             onTap: () => _focusOnBus(bus),
           ),
@@ -387,6 +448,26 @@ class _BusDetailsScreenState extends State<BusDetailsScreen> {
       ),
     );
     return route.name;
+  }
+
+  Color _getRouteColorAsColor(String routeId) {
+    final route = _availableRoutes.firstWhere(
+      (r) => r.id == routeId,
+      orElse: () => BusRoute(
+        id: routeId,
+        name: 'Unknown Route',
+        description: '',
+        color: '#666666',
+        stopIds: [],
+        estimatedDuration: Duration.zero,
+      ),
+    );
+
+    try {
+      return Color(int.parse(route.color.replaceFirst('#', '0xFF')));
+    } catch (_) {
+      return const Color(0xFF666666);
+    }
   }
 
   List<Bus> _getBusesForRoute(String routeId) {
@@ -578,31 +659,52 @@ final target =
                 // Map section with rounded bottom, similar to reference design
                 SizedBox(
                   height: 260,
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.only(
-                      bottomLeft: Radius.circular(24),
-                      bottomRight: Radius.circular(24),
-                    ),
-                    child: GoogleMap(
-                      onMapCreated: (GoogleMapController controller) {
-  _mapController = controller;
+                  child: Builder(
+                    builder: (context) {
+                      final focusedBusCard = _buildFocusedBusEtaCard();
 
-  Future.delayed(const Duration(milliseconds: 300), () {
-    _mapController?.animateCamera(
-      CameraUpdate.newLatLngZoom(target, 17.5),
-    );
-  });
-},
-                      initialCameraPosition: CameraPosition(
-  target: target,
-  zoom: 17.5,
-),
-                      markers: _getMarkers(),
-                      myLocationEnabled: true,
-                      myLocationButtonEnabled: false,
-                      zoomControlsEnabled: false,
-                      mapType: MapType.satellite,
-                    ),
+                      return ClipRRect(
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(24),
+                          bottomRight: Radius.circular(24),
+                        ),
+                        child: Stack(
+                          children: [
+                            GoogleMap(
+                              onMapCreated: (GoogleMapController controller) {
+                                _mapController = controller;
+
+                                Future.delayed(
+                                  const Duration(milliseconds: 300),
+                                  () {
+                                    _mapController?.animateCamera(
+                                      CameraUpdate.newLatLngZoom(target, 17.5),
+                                    );
+                                  },
+                                );
+                              },
+                              initialCameraPosition: CameraPosition(
+                                target: target,
+                                zoom: 17.5,
+                              ),
+                              markers: _getMarkers(),
+                              myLocationEnabled: true,
+                              myLocationButtonEnabled: false,
+                              zoomControlsEnabled: false,
+                              mapType: MapType.satellite,
+                              onTap: (_) => _clearFocusedBus(),
+                            ),
+                            if (focusedBusCard != null)
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                child: focusedBusCard,
+                              ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -1002,89 +1104,144 @@ final target =
                                                     ),
                                                     Builder(
                                                       builder: (context) {
-                                                        final arrivalInfo =
-                                                            _formatArrivalTime(
-                                                          bus.estimatedArrival,
-                                                          bus,
-                                                          route.id,
+                                                        final stopLocation =
+                                                            _destinationStopLocation();
+                                                        final isLiveGps =
+                                                            !bus.id.startsWith(
+                                                          'mock_',
                                                         );
-                                                        final displayText =
-                                                            arrivalInfo[0]
-                                                                as String;
-                                                        final isDeparture =
-                                                            arrivalInfo[1]
-                                                                as bool;
-                                                        final isDepartingSoon =
-                                                            arrivalInfo[2]
-                                                                as bool;
+                                                        final liveEta = isLiveGps
+                                                            ? BusEtaHelper.compute(
+                                                                bus.currentLocation,
+                                                                stopLocation,
+                                                              )
+                                                            : null;
 
+                                                        String displayText;
                                                         Color pillBg;
                                                         Color pillText;
 
-                                                        if (isDeparture) {
+                                                        if (liveEta != null) {
+                                                          displayText =
+                                                              liveEta.etaText;
                                                           pillBg = const Color(
-                                                            0xFFFFE5E5,
+                                                            0xFFE6F4EA,
                                                           );
                                                           pillText = const Color(
-                                                            0xFF8B0000,
-                                                          );
-                                                        } else if (isDepartingSoon) {
-                                                          pillBg = const Color(
-                                                            0xFFFFF3CD,
-                                                          );
-                                                          pillText = const Color(
-                                                            0xFF856404,
+                                                            0xFF137333,
                                                           );
                                                         } else {
-                                                          pillBg = const Color(
-                                                            0xFFE3F9E5,
+                                                          final arrivalInfo =
+                                                              _formatArrivalTime(
+                                                            bus.estimatedArrival,
+                                                            bus,
+                                                            route.id,
                                                           );
-                                                          pillText = const Color(
-                                                            0xFF037F4C,
-                                                          );
+                                                          displayText =
+                                                              arrivalInfo[0]
+                                                                  as String;
+                                                          final isDeparture =
+                                                              arrivalInfo[1]
+                                                                  as bool;
+                                                          final isDepartingSoon =
+                                                              arrivalInfo[2]
+                                                                  as bool;
+
+                                                          if (isDeparture) {
+                                                            pillBg = const Color(
+                                                              0xFFFFE5E5,
+                                                            );
+                                                            pillText =
+                                                                const Color(
+                                                              0xFF8B0000,
+                                                            );
+                                                          } else if (isDepartingSoon) {
+                                                            pillBg = const Color(
+                                                              0xFFFFF3CD,
+                                                            );
+                                                            pillText =
+                                                                const Color(
+                                                              0xFF856404,
+                                                            );
+                                                          } else {
+                                                            pillBg = const Color(
+                                                              0xFFE3F9E5,
+                                                            );
+                                                            pillText =
+                                                                const Color(
+                                                              0xFF037F4C,
+                                                            );
+                                                          }
                                                         }
 
-                                                        return Container(
-                                                          padding:
-                                                              const EdgeInsets
-                                                                  .symmetric(
-                                                            horizontal: 14,
-                                                            vertical: 7,
-                                                          ),
-                                                          decoration:
-                                                              BoxDecoration(
-                                                            color: pillBg,
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(
-                                                              999,
-                                                            ),
-                                                            boxShadow: [
-                                                              BoxShadow(
-                                                                color: Colors
-                                                                    .black
-                                                                    .withOpacity(
-                                                                  0.08,
+                                                        return Row(
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
+                                                          children: [
+                                                            if (liveEta != null)
+                                                              Padding(
+                                                                padding:
+                                                                    const EdgeInsets
+                                                                        .only(
+                                                                  right: 10,
                                                                 ),
-                                                                blurRadius: 10,
-                                                                offset:
-                                                                    const Offset(
-                                                                  0,
-                                                                  4,
+                                                                child: Text(
+                                                                  liveEta
+                                                                      .distanceText,
+                                                                  style:
+                                                                      const TextStyle(
+                                                                    fontSize: 13,
+                                                                    color: Color(
+                                                                      0xFF5F6368,
+                                                                    ),
+                                                                  ),
                                                                 ),
                                                               ),
-                                                            ],
-                                                          ),
-                                                          child: Text(
-                                                            displayText,
-                                                            style: TextStyle(
-                                                              fontSize: 12,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w700,
-                                                              color: pillText,
+                                                            Container(
+                                                              padding:
+                                                                  const EdgeInsets
+                                                                      .symmetric(
+                                                                horizontal: 14,
+                                                                vertical: 7,
+                                                              ),
+                                                              decoration:
+                                                                  BoxDecoration(
+                                                                color: pillBg,
+                                                                borderRadius:
+                                                                    BorderRadius
+                                                                        .circular(
+                                                                  999,
+                                                                ),
+                                                                boxShadow: [
+                                                                  BoxShadow(
+                                                                    color: Colors
+                                                                        .black
+                                                                        .withOpacity(
+                                                                      0.08,
+                                                                    ),
+                                                                    blurRadius:
+                                                                        10,
+                                                                    offset:
+                                                                        const Offset(
+                                                                      0,
+                                                                      4,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                              child: Text(
+                                                                displayText,
+                                                                style: TextStyle(
+                                                                  fontSize: 12,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w700,
+                                                                  color:
+                                                                      pillText,
+                                                                ),
+                                                              ),
                                                             ),
-                                                          ),
+                                                          ],
                                                         );
                                                       },
                                                     ),
